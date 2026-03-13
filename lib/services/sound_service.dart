@@ -9,6 +9,21 @@ class SoundService {
 
   bool get isMuted => _isMuted;
 
+  /// Preload sounds into memory (internal buffer of AudioPlayer).
+  Future<void> preload() async {
+    try {
+      // In audioplayers 6.x, we can set source to prepare it
+      // but since we reuse one player, we just ensure it's ready.
+      // For multiple sounds playing simultaneously or zero-latency switching,
+      // multiple players or a pool might be better, but for this app one is fine.
+      await _player.setSource(AssetSource('sounds/inhale.wav'));
+      await _player.setSource(AssetSource('sounds/exhale.wav'));
+      await _player.setSource(AssetSource('sounds/hold.wav'));
+    } catch (_) {
+      // Ignore errors if assets aren't yet available
+    }
+  }
+
   void toggleMute() {
     _isMuted = !_isMuted;
   }
@@ -31,6 +46,8 @@ class SoundService {
     }
 
     try {
+      // Stop current sound if playing and start new one
+      await _player.stop();
       await _player.play(AssetSource(asset));
     } catch (_) {
       // Silently handle missing audio or playback errors

@@ -16,7 +16,7 @@ class TimerScreen extends ConsumerStatefulWidget {
 }
 
 class _TimerScreenState extends ConsumerState<TimerScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late AnimationController _bgController;
   late Animation<Color?> _bgAnimation;
 
@@ -34,6 +34,9 @@ class _TimerScreenState extends ConsumerState<TimerScreen>
       parent: _bgController,
       curve: Curves.easeInOut,
     ));
+
+    // Preload audio for better timing
+    Future.microtask(() => ref.read(soundServiceProvider).preload());
   }
 
   @override
@@ -112,7 +115,8 @@ class _TimerScreenState extends ConsumerState<TimerScreen>
                 // Breathing circle
                 BreathingCircle(
                   phase: timerState.currentPhase,
-                  progress: timerState.progress,
+                  phaseDuration: timerState.phaseDuration,
+                  isRunning: timerState.isRunning,
                   color: widget.technique.color,
                   secondsRemaining: timerState.secondsRemaining,
                 ),

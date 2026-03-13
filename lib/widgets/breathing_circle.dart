@@ -5,81 +5,143 @@ import '../models/breathing_technique.dart';
 /// Animated circular breathwork visualisation.
 ///
 /// Expands on inhale, shrinks on exhale, holds steady otherwise.
-class BreathingCircle extends StatelessWidget {
+class BreathingCircle extends StatefulWidget {
   final BreathingPhase phase;
-  final double progress; // 0.0 – 1.0 within current phase
+  final Duration phaseDuration;
+  final bool isRunning;
   final Color color;
   final int secondsRemaining;
 
   const BreathingCircle({
     super.key,
     required this.phase,
-    required this.progress,
+    required this.phaseDuration,
+    required this.isRunning,
     required this.color,
     required this.secondsRemaining,
   });
 
   @override
-  Widget build(BuildContext context) {
-    // Scale range: 0.5 (small) to 1.0 (full)
-    double scale;
-    switch (phase) {
-      case BreathingPhase.inhale:
-        scale = 0.5 + 0.5 * Curves.easeInOut.transform(progress);
-        break;
-      case BreathingPhase.exhale:
-        scale = 1.0 - 0.5 * Curves.easeInOut.transform(progress);
-        break;
-      case BreathingPhase.hold:
-        scale = 1.0;
-        break;
-      case BreathingPhase.holdAfterExhale:
-        scale = 0.5;
-        break;
+  State<BreathingCircle> createState() => _BreathingCircleState();
+}
+
+class _BreathingCircleState extends State<BreathingCircle>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: widget.phaseDuration,
+    );
+
+    if (widget.isRunning) {
+      _controller.forward();
     }
+  }
 
-    final size = MediaQuery.of(context).size.width * 0.6;
+  @override
+  void didUpdateWidget(BreathingCircle oldWidget) {
+    super.didUpdateWidget(oldWidget);
 
-    return SizedBox(
-      width: size,
-      height: size,
-      child: AnimatedScale(
-        scale: scale,
-        duration: const Duration(milliseconds: 80),
-        curve: Curves.linear,
-        child: CustomPaint(
-          painter: _CirclePainter(
-            color: color,
-            progress: progress,
-            phase: phase,
-          ),
-          child: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  secondsRemaining.toString(),
-                  style: TextStyle(
-                    fontSize: 48,
-                    fontWeight: FontWeight.w300,
-                    color: color.withAlpha(230),
+    // If phase changed, reset and start new animation
+    if (widget.phase != oldWidget.phase || widget.phaseDuration != oldWidget.phaseDuration) {
+      _controller.duration = widget.phaseDuration;
+      _controller.reset();
+      if (widget.isRunning) {
+        _controller.forward();
+      }
+    } else if (widget.isRunning != oldWidget.isRunning) {
+      // If running state changed, pause or resume
+      if (widget.isRunning) {
+        _controller.forward();
+      } else {
+        _controller.stop();
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Use 80% of available space but max 400px
+        final size = min(constraints.maxWidth * 0.8, 400.0);
+
+        return Center(
+          child: AnimatedBuilder(
+            animation: _controller,
+            builder: (context, child) {
+              final progress = _controller.value;
+              
+              // Scale range: 0.5 (small) to 1.0 (full)
+              double scale;
+              switch (widget.phase) {
+                case BreathingPhase.inhale:
+                  scale = 0.5 + 0.5 * Curves.easeInOut.transform(progress);
+                  break;
+                case BreathingPhase.exhale:
+                  scale = 1.0 - 0.5 * Curves.easeInOut.transform(progress);
+                  break;
+                case BreathingPhase.hold:
+                  scale = 1.0;
+                  break;
+                case BreathingPhase.holdAfterExhale:
+                  scale = 0.5;
+                  break;
+              }
+
+              return SizedBox(
+                width: size,
+                height: size,
+                child: Transform.scale(
+                  scale: scale,
+                  child: CustomPaint(
+                    painter: _CirclePainter(
+                      color: widget.color,
+                      progress: progress,
+                      phase: widget.phase,
+                    ),
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            widget.secondsRemaining.toString(),
+                            style: TextStyle(
+                              fontSize: size * 0.25,
+                              fontWeight: FontWeight.w300,
+                              color: widget.color.withAlpha(230),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            _phaseLabel(widget.phase),
+                            style: TextStyle(
+                              fontSize: size * 0.05,
+                              fontWeight: FontWeight.w500,
+                              letterSpacing: 2,
+                              color: widget.color.withAlpha(200),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  _phaseLabel(phase),
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
-                    letterSpacing: 2,
-                    color: color.withAlpha(200),
-                  ),
-                ),
-              ],
-            ),
+              );
+            },
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 

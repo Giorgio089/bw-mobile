@@ -9,18 +9,18 @@ class TimerState {
   final int secondsRemaining;
   final int cycleCount;
   final bool isRunning;
-  final double progress; // 0.0 to 1.0 within current phase
   final int currentPhaseIndex;
   final List<MapEntry<BreathingPhase, int>> phases;
+  final Duration phaseDuration;
 
   const TimerState({
     required this.currentPhase,
     required this.secondsRemaining,
     required this.cycleCount,
     required this.isRunning,
-    required this.progress,
     required this.currentPhaseIndex,
     required this.phases,
+    required this.phaseDuration,
   });
 
   TimerState copyWith({
@@ -28,18 +28,18 @@ class TimerState {
     int? secondsRemaining,
     int? cycleCount,
     bool? isRunning,
-    double? progress,
     int? currentPhaseIndex,
     List<MapEntry<BreathingPhase, int>>? phases,
+    Duration? phaseDuration,
   }) {
     return TimerState(
       currentPhase: currentPhase ?? this.currentPhase,
       secondsRemaining: secondsRemaining ?? this.secondsRemaining,
       cycleCount: cycleCount ?? this.cycleCount,
       isRunning: isRunning ?? this.isRunning,
-      progress: progress ?? this.progress,
       currentPhaseIndex: currentPhaseIndex ?? this.currentPhaseIndex,
       phases: phases ?? this.phases,
+      phaseDuration: phaseDuration ?? this.phaseDuration,
     );
   }
 }
@@ -49,7 +49,8 @@ class TimerNotifier extends StateNotifier<TimerState> {
   final BreathingTechnique technique;
   final SoundService _soundService;
   Timer? _timer;
-  int _elapsed = 0; // milliseconds elapsed in current phase
+  DateTime? _startTime;
+  Duration _elapsedOffset = Duration.zero;
 
   TimerNotifier(this.technique, this._soundService)
       : super(TimerState(
@@ -57,33 +58,48 @@ class TimerNotifier extends StateNotifier<TimerState> {
           secondsRemaining: technique.phases.first.value,
           cycleCount: 0,
           isRunning: false,
-          progress: 0.0,
           currentPhaseIndex: 0,
           phases: technique.phases,
+          phaseDuration: Duration(seconds: technique.phases.first.value),
         ));
 
   void start() {
     if (state.isRunning) return;
+    
+    _startTime = DateTime.now();
     state = state.copyWith(isRunning: true);
     _soundService.playPhaseSound(state.currentPhase);
 
-    _timer = Timer.periodic(const Duration(milliseconds: 50), (_) {
-      _elapsed += 50;
-      final phaseDurationMs = state.phases[state.currentPhaseIndex].value * 1000;
-      final progress = _elapsed / phaseDurationMs;
-
-      if (_elapsed >= phaseDurationMs) {
-        _moveToNextPhase();
-      } else {
-        state = state.copyWith(
-          progress: progress.clamp(0.0, 1.0),
-          secondsRemaining: ((phaseDurationMs - _elapsed) / 1000).ceil(),
-        );
-      }
+    // Update every 100ms for responsiveness (e.g. countdown)
+    // but without the heavy state rebuilds of high-frequency progress
+    _timer = Timer.periodic(const Duration(milliseconds: 100), (_) {
+      _tick();
     });
   }
 
+  void _tick() {
+    if (_startTime == null) return;
+
+    final now = DateTime.now();
+    final elapsed = now.difference(_startTime!) + _elapsedOffset;
+    final phaseDuration = state.phaseDuration;
+
+    if (elapsed >= phaseDuration) {
+      _moveToNextPhase();
+    } else {
+      final newSecondsRemaining = (phaseDuration.inMilliseconds - elapsed.inMilliseconds) ~/ 1000 + 1;
+      if (newSecondsRemaining != state.secondsRemaining) {
+        state = state.copyWith(secondsRemaining: newSecondsRemaining);
+      }
+    }
+  }
+
   void pause() {
+    if (!state.isRunning) return;
+    
+    if (_startTime != null) {
+      _elapsedOffset += DateTime.now().difference(_startTime!);
+    }
     _timer?.cancel();
     _timer = null;
     state = state.copyWith(isRunning: false);
@@ -92,20 +108,23 @@ class TimerNotifier extends StateNotifier<TimerState> {
   void reset() {
     _timer?.cancel();
     _timer = null;
-    _elapsed = 0;
+    _startTime = null;
+    _elapsedOffset = Duration.zero;
     state = TimerState(
       currentPhase: technique.phases.first.key,
       secondsRemaining: technique.phases.first.value,
       cycleCount: 0,
       isRunning: false,
-      progress: 0.0,
       currentPhaseIndex: 0,
       phases: technique.phases,
+      phaseDuration: Duration(seconds: technique.phases.first.value),
     );
   }
 
   void _moveToNextPhase() {
-    _elapsed = 0;
+    _startTime = DateTime.now();
+    _elapsedOffset = Duration.zero;
+    
     int nextIndex = state.currentPhaseIndex + 1;
     int newCycleCount = state.cycleCount;
 
@@ -115,6 +134,8 @@ class TimerNotifier extends StateNotifier<TimerState> {
     }
 
     final nextPhase = state.phases[nextIndex];
+    final nextDuration = Duration(seconds: nextPhase.value);
+    
     _soundService.playPhaseSound(nextPhase.key);
 
     state = state.copyWith(
@@ -122,7 +143,7 @@ class TimerNotifier extends StateNotifier<TimerState> {
       currentPhaseIndex: nextIndex,
       secondsRemaining: nextPhase.value,
       cycleCount: newCycleCount,
-      progress: 0.0,
+      phaseDuration: nextDuration,
     );
   }
 
